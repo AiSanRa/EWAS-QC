@@ -1,0 +1,58 @@
+---
+title: "Filter related samples"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+sheet <- read.csv("2.filtered_new_collumn.csv")
+```
+
+
+```{r}
+create_to_delete_rows <- function(data) {
+  # Find rows where pid_m matches with other rows
+  duplicated_pid_m <- data[data$pid_m %in% data$pid_m[duplicated(data$pid_m)], ]
+  
+  # Initialize an empty dataframe to store the rows to delete
+  to_delete_rows <- data.frame()
+  
+  # Loop through each unique pid_m value
+  unique_pid_m <- unique(duplicated_pid_m$pid_m)
+  for (pid in unique_pid_m) {
+    # Subset rows with the current pid_m
+    subset_data <- duplicated_pid_m[duplicated_pid_m$pid_m == pid, ]
+    
+    # If there are both Case and Ctrl, pick Ctrl; otherwise, pick randomly
+    if ("Case" %in% subset_data$CaCo & "Ctrl" %in% subset_data$CaCo) {
+      selected_row <- subset_data[subset_data$CaCo == "Ctrl", ][1, ]
+    } else {
+      selected_row <- subset_data[sample(nrow(subset_data), 1), ]
+    }
+    
+    # Add selected row to to_delete_rows dataframe
+    to_delete_rows <- rbind(to_delete_rows, selected_row)
+  }
+  
+  # Return the dataset with rows to delete
+  return(to_delete_rows)
+}
+
+# Call the function with your dataset matches_with_pid
+to_delete_rows <- create_to_delete_rows(merged_matches)
+
+# Print or use to_delete_rows as needed
+print(to_delete_rows)
+```
+
+```{r}
+sheet$Sample_Name <- as.character(sheet$Sample_Name)
+cleaned_sheet <- anti_join(sheet, to_delete_rows, by = "Sample_Name")
+dim(cleaned_sheet)
+```
+
+```{r}
+write.csv(cleaned_sheet, "3.related_filt.csv", row.names = FALSE)
+```
+

@@ -1,0 +1,361 @@
+---
+title: "Data information"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, packages, warning=FALSE, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(sva)
+library(minfi)
+library(wateRmelon)
+library(data.table)
+library(knitr)
+library(RColorBrewer)
+```
+
+
+```{r, load_info, warning=FALSE, message=FALSE, results='hide', echo=FALSE}
+myDir <- "/home/aisanra/iastar_student_projects/aisanra/data/minerva/Minerva_All/" #directory of your sheet
+plots <- "/home/aisanra/iastar_student_projects/aisanra/script/code/code_in_order/plots/first_check/" #dairectory for the plots
+data <- "/home/aisanra/iastar_student_projects/aisanra/script/code/code_in_order/data/" #directory for the data
+```
+
+```{r, targets, echo=FALSE}
+targets <- read.metharray.sheet(myDir)
+rgset <- read.metharray.exp(targets = targets, extended = TRUE) 
+rgset@colData@rownames= targets$Sample_Name
+```
+
+```{r,data_tables, echo=FALSE,warning=FALSE, message=FALSE, include=FALSE}
+mset <- preprocessRaw(rgset) #only the methylated and unmethylated signals.
+pd <- pData(rgset) # phenotypic data
+```
+
+```{r, info_sheet, echo=FALSE}
+#sheet information
+cat("In your sheet there are", rgset@colData@nrows, "Samples and", dim(mset)[1], "probes. \n")
+
+# Find row indices where Sample_Name starts with "NegativCTRL" or "PositivCTRL"
+ctrl_indices <- grep("^NegativCTRL|^PositivCTRL", rgset@colData$Sample_Name)
+
+cat("Of this Samples,", length(ctrl_indices), "are Control Samples. \n\n", "The variables on the sheet are: \n")
+colnames(targets)
+
+```
+
+**PLOTS**
+
+All of the plots can be found in the folder specified for plots. Some of them are shown in this report.
+
+A BeanPlot has been saved in the Plot folder.
+
+```{r, bean_plot, warning=FALSE, echo=FALSE, include=FALSE}
+pdf(file = paste0(plots, "bean_plot.pdf"),
+    width = 6, 
+    height = 40)
+bean <-densityBeanPlot(mset, sampGroups = pd$Sample_Group)
+dev.off()
+```
+
+
+
+
+```{r, sex_pred_preparation, include=FALSE, message=FALSE}
+predictedSex <- getSex(mapToGenome(rgset), cutoff = -2)
+predictedSex <- data.frame(
+  SampleID = predictedSex@rownames,
+  PredictedSex = predictedSex$predictedSex,
+  xMed = predictedSex$xMed,
+  yMed = predictedSex$yMed
+)
+
+Sex <- as.data.frame(mset@colData@listData)
+predictedSex <- inner_join(predictedSex,Sex[, c("Sample_Name", "Gender")], by = c("SampleID" = "Sample_Name"))
+```
+
+
+
+```{r, sex_plot, warning=FALSE, echo=FALSE, message=FALSE,include=FALSE}
+pdf(file = paste0(plots, "sex_pred_plot.pdf"),
+    width = 12, 
+    height = 8)
+plotSex <- function(object, id = NULL) {
+    if (is.null(id)) id <- seq_along(object$PredictedSex)
+    if (length(id) != length(object$PredictedSex)) {
+        stop("id length must match number of samples.")
+    }
+   sex_plot <- plot(
+        x = object$xMed,
+        y = object$yMed,
+        type = "n",
+        xlab = "X chr, median total intensity (log2)",
+        ylab = "Y chr, median total intensity (log2)")
+    text(
+        x = object$xMed,
+        y = object$yMed,
+        labels = predictedSex$SampleID,
+        col = ifelse(object$PredictedSex == "M", "deepskyblue", "deeppink3"))
+    legend(
+        "bottomleft",
+        c("M", "F"),
+        col = c("deepskyblue", "deeppink3"),
+        pch = 16)
+    return(sex_plot)
+}
+plotSex(predictedSex)
+
+dev.off()
+```
+
+```{r,echo=FALSE}
+plotSex(predictedSex)
+```
+**Sex Prediction**
+
+```{r, sex_pred_message, warning=FALSE, echo=FALSE}
+mismatched_sex <- predictedSex$SampleID[!is.na(predictedSex$PredictedSex) & !is.na(predictedSex$Gender) & predictedSex$PredictedSex != predictedSex$Gender]
+
+# Subset the predictedSex dataframe based on mismatched sample IDs
+mismatched_predicted_sex <- predictedSex[predictedSex$SampleID %in% mismatched_sex, ]
+
+# Extract the predicted sex values
+predicted_sex_wrong <- mismatched_predicted_sex$PredictedSex
+
+
+na_predicted_sex <- predictedSex$SampleID[is.na(predictedSex$Gender)]
+
+ctrl_names <- targets$Sample_Name[ctrl_indices]
+real_na <- setdiff(na_predicted_sex, ctrl_names) #The controls don't have sex. So it gets NA, so we exclude them.
+
+cat("The samples which sex were predicted wrongly in your dataset are: ","\n")
+cat(mismatched_sex)
+cat("\n","The predicted sex of this samples are: ","\n")
+cat(predicted_sex_wrong)
+
+if (length(real_na) != 0) {
+cat("Samples with NA gender:","\n")
+real_na
+cat("Be aware that samples with value NA will be plotted as Male by default.","\n")}
+```
+
+
+
+```{r, density_plot, warning=FALSE, echo=FALSE, message=FALSE, include=FALSE}
+density <- densityPlot(mset, sampGroups = pd$Sample_Group)
+pdf(file =paste0(plots, "density_plot.pdf"),
+    width = 12, 
+    height = 8)
+density <- densityPlot(mset, sampGroups = pd$Sample_Group)
+dev.off()
+```
+
+```{r,echo=FALSE}
+density <- densityPlot(mset, sampGroups = pd$Sample_Group)
+```
+**Density Plot**
+Median intesity levels for all samples.
+
+
+```{r, mds_plot, echo=FALSE}
+pal <- brewer.pal(8,"Dark2")
+plotMDS(getM(mset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], pch=16)
+legend("top", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       bg="white", cex=0.7)
+```
+**MDS Plots**
+```{r, mds_plot_dots, echo=FALSE}
+plotMDS(getM(mset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)])
+legend("top", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       bg="white", cex=0.7)
+```
+
+
+
+```{r, mds_save_plot, warning=FALSE, echo=FALSE, message=FALSE, include=FALSE}
+pdf(file = paste0(plots, "mds_plot.pdf"),
+    width = 12, 
+    height = 8)
+pal <- brewer.pal(8,"Dark2")
+plotMDS(getM(mset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)])
+legend("top", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       bg="white", cex=0.7)
+dev.off()
+```
+
+
+```{r, mds_dot_save, warning=FALSE, echo=FALSE, message=FALSE, include=FALSE}
+pdf(file = paste0(plots, "mds_plot_dots.pdf"),
+    width = 12, 
+    height = 8)
+pal <- brewer.pal(8,"Dark2")
+plotMDS(getM(mset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], pch=16)
+legend("top", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       bg="white", cex=0.7)
+dev.off()
+```
+
+
+
+
+```{r, qc_preparation, include=FALSE}
+qc <- getQC(mset)
+badSampleCutoff = 10.5
+meds <- (qc$mMed + qc$uMed)/2
+meds <- structure(meds, names = qc@rownames)
+whichBad <- which((meds < badSampleCutoff))
+whichBad_samplenames <- names(whichBad)
+```
+
+
+```{r, qc_save_plot, warning=FALSE, echo=FALSE, message=FALSE,include=FALSE}
+pdf(file = paste0(plots, "qc_plot.pdf"),
+    width = 12, 
+    height = 8)
+plotQC_samplenames <- function(qc, badSampleCutoff = 10.5) {
+  meds <- (qc$mMed + qc$uMed)/2
+  whichBad <- which((meds < badSampleCutoff))
+  plot(qc$mMed, qc$uMed,
+       xlim = c(8,14), ylim = c(8,14), xaxt = "n", yaxt = "n",
+       xlab = "Meth median intensity (log2)",
+       ylab = "Unmeth median intensity (log2)",
+       col = ifelse(1:nrow(qc) %in% whichBad, "red", "black"))
+  axis(side = 1, at = c(9,11,13))
+  axis(side = 2, at = c(9,11,13))
+  ## abline(h = badSampleCutoff, lty = 2)
+  ## abline(v = badSampleCutoff, lty = 2)
+  abline(badSampleCutoff * 2 , -1, lty = 2)
+  if (length(whichBad) > 0) {
+    text(qc$mMed[whichBad], qc$uMed[whichBad] - 0.25,
+         labels = names(whichBad), col = "red") # change here so the label is not whichBad (sample number) but names(whichBad) so sample name
+  }
+  legend("topleft", legend = c("good", "bad, with Sample Name"), pch = 1,
+         col = c("black", "red"), bty = "n")
+  invisible(NULL)
+}
+
+plotQC_samplenames(qc)
+dev.off()
+```
+
+```{r,qc_plot,echo=FALSE}
+plotQC_samplenames(qc)
+```
+**Quality Control Plot**
+
+```{r, qc_message, warning=FALSE, echo=FALSE}
+
+if (length(whichBad_samplenames) != 0) {
+cat("The bad Samples taken by a SampleCutOff of 10.5 are: ")
+cat(whichBad_samplenames)
+
+}else{
+  cat("No bad Samples were taken by a SampleCutOff of 10.5.")
+}
+
+moreBad <- which((meds < 10.8))
+moreBad_samplenames <- names(moreBad)
+nearBad <- setdiff(as.vector(moreBad_samplenames),as.vector(whichBad_samplenames))
+
+if (length(nearBad) != 0) {
+ cat("\n","Samples near the CutOff: ")
+cat(nearBad)
+cat("\n","You might consider removing this samples.")
+}
+```
+
+
+
+```{r, bad_samples_sex_plot, warning=FALSE, echo=FALSE, message=FALSE,include=FALSE}
+pdf(file = paste0(plots, "explanatory_sex_pred_plot.pdf"),
+    width = 12, 
+    height = 8)
+plotSex2 <- function(object, moreBad_samplenames, id = NULL) {
+    if (is.null(id)) id <- seq_along(object$PredictedSex)
+    if (length(id) != length(object$PredictedSex)) {
+        stop("id length must match number of samples.")
+    }
+    plot(
+        x = object$xMed,
+        y = object$yMed,
+        type = "n",
+        xlab = "X chr, median total intensity (log2)",
+        ylab = "Y chr, median total intensity (log2)")
+    text(
+        x = object$xMed,
+        y = object$yMed,
+        labels = predictedSex$SampleID,
+        col = ifelse(object$PredictedSex == "M", "deepskyblue", "deeppink3"))
+    
+    # Add circles around specified samples
+        if (!is.null(mismatched_sex)) {
+        mismatched_sex_samples_indices <- match(mismatched_sex, object$SampleID)
+        points(
+            x = object$xMed[mismatched_sex_samples_indices],
+            y = object$yMed[mismatched_sex_samples_indices],
+            pch = 16,
+            col = "lightgreen",
+            cex = 2
+        )
+        }
+    
+    if (!is.null(whichBad_samplenames)) {
+        bad_samples_indices <- match(whichBad_samplenames, object$SampleID)
+        points(
+            x = object$xMed[bad_samples_indices],
+            y = object$yMed[bad_samples_indices],
+            pch = 18,
+            col = "red",
+            cex = 2
+        )
+    }
+    if (!is.null(nearBad)) {
+        nearbad_samples_indices <- match(nearBad, object$SampleID)
+        points(
+            x = object$xMed[nearbad_samples_indices],
+            y = object$yMed[nearbad_samples_indices],
+            pch = 18,
+            col = "yellow",
+            cex = 2
+        )
+    }
+    
+    legend(
+        "topleft",
+        c("M", "F","Missmatched Sex", "Bad Samples", "NearBad Samples"),
+        col = c("deepskyblue", "deeppink3", "lightgreen", "red", "yellow"),
+        pch = c(1, 1, 16, 18, 18),
+        cex= 0.8)
+}
+
+plotSex2(predictedSex, moreBad_samplenames)
+dev.off()
+```
+
+```{r, echo=FALSE}
+plotSex2(predictedSex, moreBad_samplenames)
+```
+
+**A more explanatory Sex Pediction Plot**
+
+```{r, comparison, warning=FALSE, echo=FALSE}
+if (any(moreBad_samplenames %in% mismatched_sex)) {
+  cat("The samples that fails in both, sample CutOff and Sex Prediction are:", intersect(moreBad_samplenames, mismatched_sex), "\n")
+} else {
+  cat("There are no matching samples between bad sample CutOff and Sex Prediction.\n")
+}
+
+```
+
+```{r,echo=FALSE}
+cat("In this plot you can see the position of the missmatched sex predicted samples, the bad \n samples and also those ones that are near bad of the Cutoff QC.")
+
+```
+
+
+

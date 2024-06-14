@@ -1,0 +1,382 @@
+---
+title: "Filter Probes"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, packages, warning=FALSE, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(ChAMP)
+library(sva)
+library(minfi)
+library(wateRmelon)
+library(data.table)
+library(knitr)
+library(RColorBrewer)
+library(plotly)
+```
+
+```{r, load_info, warning=FALSE, message=FALSE, results='hide', echo=FALSE}
+myDir <- ""
+autoimpute=TRUE
+filterDetP=TRUE
+ProbeCutoff=0
+SampleCutoff=0.1
+detPcut=0.01
+filterBeads=TRUE
+beadCutoff=0.05
+filterNoCG=FALSE
+filterSNPs=TRUE
+population="EUR"
+filterMultiHit=TRUE
+filterXY=TRUE
+force=FALSE
+targets <- read.metharray.sheet(myDir)
+```
+
+
+```{r, load_champ, warning=FALSE, message=FALSE, results='hide', echo=FALSE}
+nLoad <- champ.load(directory = myDir,
+           method="minfi",
+           methValue="B",
+           autoimpute=TRUE,
+           filterDetP=TRUE,
+           ProbeCutoff=0,
+           SampleCutoff=0.1,
+           detPcut=0.01,
+           filterBeads=TRUE,
+           beadCutoff=0.05,
+           filterNoCG=FALSE,
+           filterSNPs=TRUE,
+           population="EUR",
+           filterMultiHit=TRUE,
+           filterXY=TRUE,
+           force=FALSE,
+           arraytype="450K")
+
+```
+
+
+
+```{r,data_tables, echo=FALSE, message=FALSE, include=FALSE}
+rgset <- nLoad$rgSet #Get the rgset from the load data.
+mset <- preprocessRaw(rgset) #only the methylated and unmethylated signals.
+pd <- pData(rgset) # phenotypic data
+detP <- detectionP(rgset) #detection p-value 
+RSet <- ratioConvert(mset, what = "both", keepCN = TRUE) #RatioSet
+GRset <- mapToGenome(RSet) #GenomicRatioSet
+```
+
+
+```{r, imputation, warning=FALSE, message=FALSE, results='hide', echo=FALSE}
+tmp = getBeta(mset, "Illumina")
+ if(sum(is.na(tmp))!=0){
+       champ.impute(beta=nLoad$beta,
+                 pd=nLoad$pd,
+                 method="Combine",
+                 k=5,
+                 ProbeCutoff=0.2,
+                 SampleCutoff=0.1)
+    }
+```
+
+**FILTERS**
+
+```{r, beadcount_function, include=FALSE, echo=FALSE}
+ mybeadcount <- function(x)
+    {
+        #select out bead count dataframe
+        getNBeads(x) -> nb
+        #match rownames of beadcount dataframe to addresses
+        getProbeInfo(x,type="I")->typeIadd
+        match(typeIadd$AddressA,rownames(nb))->typeImatchA
+        match(typeIadd$AddressB,rownames(nb))->typeImatchB
+
+        #match rownames of beadcount dataframe to addresses
+        getProbeInfo(x,type="II")->typeIIadd
+        match(typeIIadd$Address,rownames(nb))->typeIImatch
+
+        nb->nbcg
+
+        locusNames <- getManifestInfo(x, "locusNames")
+        bc_temp <- matrix(NA_real_, ncol = ncol(x), nrow = length(locusNames),
+        dimnames = list(locusNames, sampleNames(x)))
+    
+        TypeII.Name <- getProbeInfo(x, type = "II")$Name
+        bc_temp[TypeII.Name, ] <- nbcg[getProbeInfo(x, type = "II")$AddressA,]
+       
+        TypeI <- getProbeInfo(x, type = "I")
+
+        bc_temp->bcB
+        bc_temp->bcA        
+    
+        bcB[TypeI$Name, ] <- nbcg[TypeI$AddressB,]
+        bcA[TypeI$Name, ] <- nbcg[TypeI$AddressA,]
+
+        which(bcB<3) -> bcB3
+        which(bcA<3) -> bcA3
+        bcA->bcA2
+        bcB->bcB2
+        bcA2[bcA3]<-NA
+        bcA2[bcB3]<-NA
+    
+        data.frame(bcA2)->bc
+        bc
+    }
+```
+
+
+```{r, report_start, echo=FALSE}
+cat("Data load from\n", myDir)
+sampleNames(rgset)=rgset[[1]]
+cat("\nThe total amount of Samples load are",  rgset@colData@nrows)
+cat("\nThe total amount of probes load are", dim(mset)[1] )
+```
+
+
+
+```{r, cpg_fract, warning=FALSE,echo=FALSE}
+tmp = getBeta(mset, "Illumina")
+tmp[detP >= 0.01] <- NA 
+    numfail <- matrix(colMeans(is.na(tmp)))
+    rownames(numfail) <- colnames(detP)
+    colnames(numfail) <- "Failed CpG Fraction."
+    
+cat("You can find the fraction of failed positions per sample in the folder Documents")
+    
+write.table(numfail, "Filtered_failed_CpG_Fraction.txt", sep = "\t", row.names = TRUE, quote = FALSE)
+```
+
+**Sample Cut**
+
+```{r, sampleCut, warning=FALSE, echo=FALSE}
+numfail <- matrix(colMeans(is.na(tmp)))
+rownames(numfail) <- colnames(detP)
+RemainSample <- which(numfail < 0.1) 
+
+if(any(numfail >= 0.1))
+    {
+  cat("The detSamplecut parameter is : ",SampleCutoff,"\n", "Samples : ",
+paste(rownames(numfail)[which(numfail >= 0.1)],collapse=",")," will be deleted.","\n","There are ",length(RemainSample)," samples left for analysis.\n")
+  } else {
+  cat("No samples were deleted during the SampleCut.")
+}
+rgset <- rgset[,RemainSample]
+detP <- detP[,RemainSample]
+mset <- mset[,RemainSample]
+pd <- pd[RemainSample,]
+tmp <- tmp[,RemainSample]
+
+```
+
+**Filter DetP**
+```{r, filter_probes, warning=FALSE,echo=FALSE} 
+mset <- preprocessRaw(rgset)
+ mset.f = mset[rowSums(is.na(tmp)) <= ProbeCutoff*ncol(detP),]
+        
+        if(ProbeCutoff==0)
+        {
+            cat("After filtering probes with a detection p-value above ",detPcut," in one or more samples,","\n",dim(mset)[1]-dim(mset.f)[1]," probes has been removed from the analysis.")
+        }else{
+            cat("Filtering probes with a detection p-value above ",detPcut,"\n"," in at least ",ProbeCutoff*100,"% of samples has removed ",dim(mset)[1]-dim(mset.f)[1],"probes from the analysis.","\n","If a large number of probes have been removed,","\n","ChAMP suggests you look at the failedSample file to identify potentially bad samples.")
+        }
+cat("\nThe number of remaining probes is",dim(mset.f)[1])
+        mset=mset.f
+        tmp <- tmp[rowSums(is.na(tmp)) <= ProbeCutoff*ncol(detP),]
+        
+```
+
+**Imputation**
+```{r, imput_mess, echo=FALSE, warning=FALSE}
+ if(sum(is.na(tmp))==0){
+       cat("There is no NA values in your matrix, there is no need to imputation.\n")
+    }else
+    {
+        cat("There are ",sum(is.na(tmp))," NA remain in filtered Data Set. Impute was performed for remain NAs.\n")
+    }
+```
+
+```{r, autoimpute, echo=FALSE, warning=FALSE}
+if(autoimpute & sum(is.na(tmp)) > 0){
+        cat("Impute will be conducted here for remain ",sum(is.na(tmp)),"  NAs.","\n"," Note that if you don't do this, NA values would be kept in your data set.")
+        tmp <- impute.knn(tmp,k=5)$data
+    }
+```
+
+
+**Filter Beads**
+```{r, bc_mess, warning=FALSE,echo=FALSE}
+
+if(filterBeads)
+    {bc=mybeadcount(rgset)
+        bc2=bc[rowSums(is.na(bc)) < beadCutoff*(ncol(bc)),]
+
+        mset.f2 = mset[featureNames(mset) %in% row.names(bc2),]
+        tmp <- tmp[rownames(tmp) %in% row.names(bc2),]
+        cat("Filtering probes with a beadcount <3 in at least ",beadCutoff*100,"% of samples, has removed","\n",dim(mset)[1]-dim(mset.f2)[1]," from the analysis.")
+        cat("\nThe number of remaining probes is",dim(mset.f2)[1])
+        mset=mset.f2
+      
+    }
+```
+**Filter NoCG**
+```{r, filterNoCG, warning=FALSE,echo=FALSE}
+ if(filterNoCG)
+    {mset.f2=dropMethylationLoci(mset,dropCH=T)
+        tmp <- tmp[rownames(tmp) %in% featureNames(mset.f2),]
+        cat("Filtering non-cg probes, has removed ",dim(mset)[1]-dim(mset.f2)[1]," from the analysis.")
+        cat("\nThe number of remaining probes is",dim(mset.f2)[1])
+        mset <- mset.f2
+ }else{
+      cat("No non-cg probes were removed")
+    }
+```
+
+**Filter SNP**
+```{r, filterSNPs, warning=FALSE,echo=FALSE}
+if(filterSNPs)
+    {if(is.null(population))
+            {
+                cat("Using general 450K SNP list for filtering.")
+                data(hm450.manifest.hg19)
+                maskname <- rownames(hm450.manifest.hg19)[which(hm450.manifest.hg19$MASK_general==TRUE)]
+            }else if(!population %in% c("AFR","EAS","EUR","SAS","AMR","GWD","YRI","TSI","IBS","CHS","PUR","JPT","GIH","CHB","STU","ITU","LWK","KHV","FIN","ESN","CEU","PJL","ACB","CLM","CDX","GBR","BEB","PEL","MSL","MXL","ASW"))
+            {
+                cat("Using general 450K SNP list for filtering.")
+                data(hm450.manifest.hg19)
+                maskname <- rownames(hm450.manifest.hg19)[which(hm450.manifest.hg19$MASK_general==TRUE)]
+            }else
+            {
+                cat("Using ",population," specific 450K SNP list for filtering.")
+                data(hm450.manifest.pop.hg19)
+                maskname <- rownames(hm450.manifest.pop.hg19)[which(hm450.manifest.pop.hg19[,paste("MASK_general_",population,sep="")]==TRUE)]
+            }
+    }
+  mset.f2=mset[!featureNames(mset) %in% maskname,]
+        tmp <- tmp[!rownames(tmp) %in% maskname,]
+        cat("Filtering probes with SNPs as identified in Zhou's Nucleic Acids Research Paper, 2016,\n has removed ",dim(mset)[1]-dim(mset.f2)[1]," from the analysis.")
+        cat("\nThe number of remaining probes is",dim(mset.f2)[1])
+        mset=mset.f2
+```
+**Filter MultiHit**
+```{r, multihit, warning=FALSE,echo=FALSE}
+ if(filterMultiHit)
+    {data(multi.hit)
+        mset.f2=mset[!featureNames(mset) %in% multi.hit$TargetID,]
+        tmp <- tmp[!rownames(tmp) %in% multi.hit$TargetID,]
+        cat("Filtering probes that align to multiple locations as identified in Nordlund et al, has removed\n ",dim(mset)[1]-dim(mset.f2)[1]," from the analysis.")
+        cat("\nThe number of remaining probes is",dim(mset.f2)[1])
+        mset=mset.f2
+    }
+```
+
+**Filter XY chromosome**
+```{r, filterXY, warning=FALSE,echo=FALSE}
+if(filterXY)
+	{data(probe.features)
+		autosomes=probe.features[!probe.features$CHR %in% c("X","Y"), ]
+        mset.f2=mset[featureNames(mset) %in% row.names(autosomes),]
+        tmp <- tmp[rownames(tmp) %in% row.names(autosomes),]
+        cat("Filtering probes on the X or Y chromosome has removed ",dim(mset)[1]-dim(mset.f2)[1]," from the analysis.")
+        cat("\nThe number of remaining probes is",dim(mset.f2)[1])
+        mset=mset.f2
+	}
+```
+**Beta filter**
+```{r, beta_raw, warning=FALSE,echo=FALSE}
+beta.raw <- tmp
+
+    intensity <-  minfi::getMeth(mset) + minfi::getUnmeth(mset)
+    detP <- detP[which(row.names(detP) %in% row.names(beta.raw)),]
+
+    if(min(beta.raw, na.rm=TRUE)<=0) beta.raw[beta.raw<=0] <- min(beta.raw[beta.raw > 0])
+      cat("Zeros in your dataset have been replaced with smallest positive value.\n")
+    
+    
+    if(max(beta.raw, na.rm=TRUE)>=0) beta.raw[beta.raw>=1] <- max(beta.raw[beta.raw < 1])
+      cat("Ones in your dataset have been replaced with largest value below 1.\n")
+    
+```
+**After filtering**
+```{r, final_statement, warning=FALSE,echo=FALSE}
+    cat("The analysis will be proceed with ", dim(beta.raw)[1], " probes and ",dim(beta.raw)[2], " samples.\n")
+
+cat("A total of ", dim(preprocessRaw(rgset))[1]-dim(beta.raw)[1], " probes were removed.\n")
+
+    cat("Current Data Set contains ",sum(is.na(beta.raw))," NA in your Beta Matrix.\n")
+```
+
+```{r, save_load_probe_filt, include=FALSE}
+#saveRDS(nLoad, file= "")
+#save(rgset, file = "")
+nLoad <- readRDS("")
+```
+
+
+```{r, heatmap_filtered, echo=FALSE, warning=FALSE, message=FALSE}
+myNorm= as.data.frame(getBeta(nLoad$mset))
+pcs_svd <- champ.SVD(beta = as.data.frame(getBeta(nLoad$mset)),
+              rgSet=nLoad$rgSet,
+              pd=nLoad$pd,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+```
+
+**SVD HEATMAP FOR THE SAMPLE AND PROBE FILTERED DATA**
+
+```{r, include=FALSE}
+pdf(file = "snp_mds_plot.pdf",
+    width = 12, 
+    height = 8)
+pal <- brewer.pal(8,"Dark2")
+par(mfrow=c(2,2))
+# Examine higher dimensions to look at other sources of variation
+plotMDS(getSnpBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(getSnpBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,3))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+
+plotMDS(getSnpBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(2,3))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+
+plotMDS(getSnpBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(3,4))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+dev.off()
+```
+
+
+```{r, echo=FALSE}
+pal <- brewer.pal(8,"Dark2")
+par(mfrow=c(2,2))
+plotMDS(getSnpBeta(rgset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(getSnpBeta(rgset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,3))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+
+plotMDS(getSnpBeta(rgset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(2,3))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+
+plotMDS(getSnpBeta(rgset), top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(3,4))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+```
+
+**SNP BETAS CLUSTERING**

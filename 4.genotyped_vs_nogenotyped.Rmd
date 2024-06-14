@@ -1,0 +1,193 @@
+---
+title: "Analysis samples no genotyped vs genotyped"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, echo=FALSE}
+geno <- read.table("", header = TRUE) #file with the genotyped samples data
+sheet <- read.csv("")
+```
+
+
+```{r, echo=FALSE}
+#Samples that are not in the genotyped file.
+sheet_samples <- as.character(sheet$Sample_Name)
+geno_samples <- as.character(unique(geno$IID1))
+
+not_geno <- setdiff(sheet_samples, geno_samples) # In sheet_samples but not in geno_samples
+
+cat("Number of Samples in the minerva filtered sheet that are not in the genotyped file:", length(not_geno))
+
+```
+
+```{r, include=FALSE}
+#Get the Sample_Names that are in the genotyped file.
+sheet$Sample_Name <- as.character(sheet$Sample_Name)
+geno$IID1 <- as.character(geno$IID1)
+geno_filtered_sheet <- sheet[sheet$Sample_Name %in% geno$IID1, ]
+
+dim(geno_filtered_sheet)
+``` 
+
+```{r, include=FALSE}
+#Use geno sheet rows to make the new collumn with the genotyped info.
+sheet$Genotyped <- ifelse(sheet$Sample_Name %in% geno_filtered_sheet$Sample_Name, 1, 0)
+dim(sheet)
+
+#Save the sheet with the new collumn
+write.csv(sheet, "2.filtered_new_collumn.csv", row.names = FALSE)
+```
+
+**NO GENOTYPED ANALYSIS**
+
+```{r, echo=FALSE}
+design <- read.csv("")
+cosan <- read.csv("")
+```
+
+```{r, echo=FALSE}
+# Create a new dataset with just the participant IDs
+ids <- data.frame(
+  participant_id1 = substr(design$participant_id1, 14, 19),
+  participant_id2 = substr(design$participant_id2, 14, 19) 
+)
+
+```
+
+```{r, echo=FALSE}
+pids <- data.frame(
+  pid_cont = design$pid_cont,
+  pid_case = design$pid_case,
+  participant_id1=ids$participant_id1,
+  participant_id2=ids$participant_id2
+)
+```
+
+
+```{r, echo=FALSE}
+# Convert participant_id1 and participant_id2 columns to character type if they are not already
+design$participant_id1 <- as.character(ids$participant_id1)
+design$participant_id2 <- as.character(ids$participant_id2)
+
+# Convert Sample_Name column to character type if it is not already
+sheet$Sample_Name <- as.character(sheet$Sample_Name)
+
+# Count how many participant_id1 match with Sample_Name
+id1_matches <- sum(ids$participant_id1 %in% sheet$Sample_Name)
+
+# Count how many participant_id2 match with Sample_Name
+id2_matches <- sum(ids$participant_id2 %in% sheet$Sample_Name)
+
+# Print the results
+print(paste("Number of participant_id1 matches:", id1_matches))
+print(paste("Number of participant_id2 matches:", id2_matches))
+```
+```{r, echo=FALSE}
+caco_counts <- table(sheet$CaCo)
+
+# Print the counts
+print(caco_counts)
+```
+All of the Samples exist on the design file and on the sheet.
+id1= case
+id2= control
+
+
+```{r, include=FALSE}
+# Step 1: Subset "sheet" dataset based on the condition of "CaCo" column
+case_samples <- sheet[sheet$CaCo == "Case", ]
+ctrl_samples <- sheet[sheet$CaCo == "Ctrl", ]
+dim(case_samples)
+dim(ctrl_samples)
+# Step 2: Merge the subset of "sheet" dataset with the "pids" dataset
+case_merged <- merge(case_samples, pids, by.x = "Sample_Name", by.y = "participant_id1", all.x = TRUE)
+ctrl_merged <- merge(ctrl_samples, pids, by.x = "Sample_Name", by.y = "participant_id2", all.x = TRUE)
+
+# Step 3: Select the relevant columns and rename them
+case_result <- data.frame(pid = case_merged$pid_case, Sample_Name = case_merged$Sample_Name, CaCo = case_merged$CaCo)
+ctrl_result <- data.frame(pid = ctrl_merged$pid_cont, Sample_Name = ctrl_merged$Sample_Name, CaCo = ctrl_merged$CaCo)
+
+# Combine the results into a single dataset
+pid_cont_in_cosan <- rbind(case_result, ctrl_result)
+dim(pid_cont_in_cosan)
+```
+```{r, echo=FALSE}
+# Perform a left join between matches and cosan
+merged_matches <- merge(pid_cont_in_cosan, cosan, by.x = "pid", by.y = "pid", all.x = TRUE)
+
+# Add pid_f and pid_m columns to the matches dataset
+pid_in_cosan_with_parents <- data.frame(
+  Sample_Name = merged_matches$Sample_Name,
+  CaCo = merged_matches$CaCo,
+  pid = merged_matches$pid,
+  pid_f = merged_matches$pid_f,
+  pid_m = merged_matches$pid_m
+)
+```
+
+```{r, echo=FALSE, message=FALSE}
+matching_pid_m <- pid_in_cosan_with_parents[pid_in_cosan_with_parents$pid_m %in% pid_in_cosan_with_parents$pid_m[duplicated(pid_in_cosan_with_parents$pid_m)], ]
+dim(pid_in_cosan_with_parents)
+dim(matching_pid_m)
+matching_pid_m
+```
+
+Table with the related samples of all the Samples.
+pid_f is the father id and pid_m is the mother id.
+If both are the same the Samples are related
+
+
+
+**ANALYSIS OF THE GENOTYPED DATA** 
+
+For this analysis a file produced with PLINK is used.
+
+You can find the resulting file in: 
+
+/home/aisanra/iastar_student_projects/aisanra/data/
+minerva_genPCs_and_pruned_gens_ricopili_repl/minerva_1262_relatedness.genome
+
+```{r, include=FALSE}
+data <- read.table("", header = TRUE)
+```
+
+
+```{r, include=FALSE}
+my_dataframe <- data.frame(IID1 = data$IID1, IID2 = data$IID2, PI_HAT = data$PI_HAT)
+```
+
+```{r, bad_samples, include=FALSE}
+cosan <- subset(my_dataframe, PI_HAT > 0.125, select = c("IID1", "IID2", "PI_HAT"))
+rownames(cosan) <- NULL
+```
+
+```{r, get_CaCo, echo=FALSE}
+
+cat("Your pair of samples which Pi_value is greater than 0.125 are:")
+merge_and_create_CaCo <- function(cosan, sheet, IID_column) {
+  # Merge the datasets based on IID_column
+  merged_data <- merge(cosan, sheet, by.x = IID_column, by.y = "Sample_Name", all.x = TRUE)
+  
+  # Extract CaCo column
+  CaCo_column <- merged_data$CaCo
+  
+  # If Sample_Name does not have a corresponding value in IID_column,
+  # fill it with NA
+  CaCo_column[is.na(merged_data[[IID_column]])] <- NA
+  
+  # Return the CaCo column
+  return(CaCo_column)
+}
+
+# Apply the function to IID1 and IID2 columns
+cosan$IID1_CaCo <- merge_and_create_CaCo(cosan, sheet, "IID1")
+cosan$IID2_CaCo <- merge_and_create_CaCo(cosan, sheet, "IID2")
+
+# View the resulting dataset
+print(cosan)
+
+```
+
+

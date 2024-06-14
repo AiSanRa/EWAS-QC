@@ -1,0 +1,110 @@
+---
+title: "ewas_plots"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+---
+
+```{r, include=FALSE}
+library(tidyverse)
+library(qqman)
+```
+
+```{r, include=FALSE}
+smok_gest_week <- readRDS("smok_gest_week_binary_ewas_coefficients.rds")
+smok_DNAmAge <- readRDS("smok_DNAmAge_binary_ewas_coefficients.rds")
+gest_week_smok <- readRDS("gest_week_smok_binary_ewas_coefficients.rds")
+gest_week_smok_pred <- readRDS("gest_week_smok_pred_binary_ewas_coefficients.rds")
+```
+
+
+```{r, echo=FALSE}
+bonferroni_threshold <- -log10(0.05/nrow(smok_gest_week))
+
+# Calculate -log10(P) values
+smok_gest_week$logP <- -log10(smok_gest_week$gest_week_pvalue)
+
+# Identify SNPs with -log10(P) > 60
+highlight_snps <- smok_gest_week$CpG_gene[smok_gest_week$logP > 60]
+
+manhattan(smok_gest_week, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "gest_week_pvalue", ylim = c(0, 80), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, logp = TRUE, annotatePval=10^(-60))
+```
+
+GESTATIONAL WEEK REGISTER PLOTS
+
+```{r, echo=FALSE}
+qq(smok_gest_week$gest_week_pvalue, main = "Q-Q plot of Register Gestational Week p-values", xlim = c(0, 10), ylim = c(0,
+    100), pch = 18, col = "blue4", cex = 1.5, las = 1)
+```
+```{r, include=FALSE}
+pdf(file = "gest_week_register_plot.pdf",
+    width = 12, 
+    height = 8)
+manhattan(smok_gest_week, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "gest_week_pvalue", ylim = c(0, 80), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, logp = TRUE, annotatePval=10^(-60))
+qq(smok_gest_week$gest_week_pvalue, main = "Q-Q plot of Register Gestational Week p-values", xlim = c(0, 10), ylim = c(0,
+    100), pch = 18, col = "blue4", cex = 1.5, las = 1)
+dev.off()
+```
+
+
+```{r, echo=FALSE}
+manhattan(smok_DNAmAge, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "DNAmAge_pvalue", ylim = c(0, 100), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, annotatePval=10^(-60))
+```
+GESTATIONAL WEEK PREDICTED PLOTS
+
+```{r, echo=FALSE}
+qq(smok_DNAmAge$DNAmAge_pvalue, main = "Q-Q plot of Predicted DNAmAge p-values", xlim = c(0, 10), ylim = c(0,
+    100), pch = 18, col = "blue4", cex = 1.5, las = 1)
+```
+```{r, include=FALSE}
+pdf(file = "gest_week_pred_plot.pdf",
+    width = 12, 
+    height = 8)
+manhattan(smok_DNAmAge, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "DNAmAge_pvalue", ylim = c(0, 100), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, annotatePval=10^(-60))
+qq(smok_DNAmAge$DNAmAge_pvalue, main = "Q-Q plot of Predicted DNAmAge p-values", xlim = c(0, 10), ylim = c(0,
+    100), pch = 18, col = "blue4", cex = 1.5, las = 1)
+dev.off()
+```
+
+
+```{r, echo=FALSE}
+manhattan(gest_week_smok, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "smoking_pvalue", ylim = c(0, 120), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, annotatePval=10^(-40))
+```
+SMOKING REGISTER PLOTS
+
+
+```{r, echo=FALSE}
+qq(gest_week_smok$smoking_pvalue, main = "Q-Q plot of Register Smoking p-values", xlim = c(0, 7), ylim = c(0,
+    130), pch = 18, col = "blue4", cex = 1.5, las = 1)
+```
+
+```{r, include=FALSE}
+pdf(file = "smoking_register_plot.pdf",
+    width = 12, 
+    height = 8)
+manhattan(gest_week_smok, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "smoking_pvalue", ylim = c(0, 120), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, annotatePval=10^(-40))
+qq(gest_week_smok$smoking_pvalue, main = "Q-Q plot of Register Smoking p-values", xlim = c(0, 7), ylim = c(0,
+    130), pch = 18, col = "blue4", cex = 1.5, las = 1)
+dev.off()
+```
+
+```{r, echo=FALSE}
+manhattan(gest_week_smok_pred, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "smoking_pred_pvalue", ylim = c(0, 300), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, annotatePval=10^(-50))
+```
+SMOKING PREDICTED PLOTS
+
+```{r, echo=FALSE}
+qq(gest_week_smok_pred$smoking_pred_pvalue, main = "Q-Q plot of Predicted Smoking p-values", xlim = c(0, 10), ylim = c(0,
+    300), pch = 18, col = "blue4", cex = 1.5, las = 1)
+```
+
+```{r, include=FALSE}
+pdf(file = "smoking_pred_plot.pdf",
+    width = 12, 
+    height = 8)
+manhattan(gest_week_smok_pred, chr = "CpG_chr", bp = "CpG_basepair", snp = "CpG_gene", p = "smoking_pred_pvalue", ylim = c(0, 300), col = c("red2", "blue"), suggestiveline=FALSE, genomewideline=bonferroni_threshold, annotatePval=10^(-50))
+qq(gest_week_smok_pred$smoking_pred_pvalue, main = "Q-Q plot of Predicted Smoking p-values", xlim = c(0, 10), ylim = c(0,
+    300), pch = 18, col = "blue4", cex = 1.5, las = 1)
+dev.off()
+```

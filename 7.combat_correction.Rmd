@@ -1,0 +1,60 @@
+---
+title: "Combat correction"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, packages, warning=FALSE, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(ChAMP)
+library(sva)
+library(minfi)
+library(wateRmelon)
+library(data.table)
+library(RColorBrewer)
+library(plotly)
+library(pbmcapply)
+```
+
+
+```{r, include=FALSE}
+load("rgset.RData")
+load("7ctrlpcs.RData")
+pheno <- readRDS("pheno_dnorm.RDS")
+pheno_corr <- pheno[, !(names(pheno) %in% c("AMP_Plate", "EstSex", "Fraction_Failed_Probes", "SexCheck"))]
+```
+
+
+```{r, include=FALSE}
+combat_slide <- champ.runCombat(beta=7ctrlpcs, pd=pheno,
+                    variablename="CaCo", batchname=c("Slide"))
+combat_slide_array <- champ.runCombat(beta=combat_slide,pd=pheno,
+                    variablename="CaCo", batchname=c("Array"))
+```
+
+
+```{r,include=FALSE}
+#save(combat_slide_array, file = "final_filtered_betas.RData")
+```
+
+```{r, echo=FALSE, message=FALSE, results='hide'}
+norm_svd_combat_array <- champ.SVD(beta = as.data.frame(combat_slide),
+              rgSet=rgset,
+              pd=pheno_corr,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+
+
+norm_svd_combat_slide_array <- champ.SVD(beta = as.data.frame(combat_slide_array),
+              rgSet=rgset,
+              pd=pheno_corr,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+```

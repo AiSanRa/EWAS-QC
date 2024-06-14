@@ -1,0 +1,273 @@
+---
+title: "Normalization and Control Pcs Adjustment"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, packages, warning=FALSE, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(ChAMP)
+library(sva)
+library(minfi)
+library(wateRmelon)
+library(data.table)
+library(RColorBrewer)
+library(plotly)
+library(pbmcapply)
+```
+
+```{r, load, include=FALSE}
+nLoad <- readRDS("filtered_probes_load.RDS")
+```
+
+```{r,data_tables, echo=FALSE, message=FALSE, include=FALSE}
+rgset <- nLoad$rgSet #Get the rgset from the load data.
+mset <- preprocessRaw(rgset) #only the methylated and unmethylated signals.
+pd <- pData(rgset) # phenotypic data
+targets <- read.metharray.sheet("")
+```
+
+
+
+**DASEN NORMALIZATION**
+
+```{r, dasen_norm, include=FALSE}
+pheno <- pData(nLoad$mset)
+rownames(nLoad$mset@colData) <- paste0(pheno$Slide, "_", pheno$Array) #needed to include after champ.load for dasen normalization to work in 450K array
+dnorm <- dasen(nLoad$mset)
+```
+
+```{r, save_dnorm, include=FALSE}
+saveRDS(dnorm, file= "dnorm.RDS")
+```
+
+```{r, include=FALSE}
+#dnorm <- readRDS("dnorm.RDS")
+```
+
+
+```{r, heatmap, echo=FALSE, warning=FALSE, message=FALSE}
+#taking out from the phenotypes the confusing or possibly related types
+pheno_corr <- pheno[, !(names(pheno) %in% c("AMP_Plate", "EstSex", "Fraction_Failed_Probes", "SexCheck"))]
+
+#Create SVD
+dnorm_beta <- as.data.frame(getBeta(dnorm))
+norm_svd <- champ.SVD(beta = dnorm_beta,
+              rgSet=nLoad$rgSet,
+              pd=pheno_corr,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+```
+**SVD Heatmap after Dasen normalization**
+
+```{r, distribution_dev, include=FALSE}
+pdf(file = "norm_distribution.pdf",
+    width = 12, 
+    height = 8)
+par(mfrow=c(1,2))
+# Plot distributions prior to normalization for sample 1
+plotBetasByType(mset[,1],main="Raw")
+typeI <- getProbeInfo(mset, type = "I")[, c("Name","nCpG")]
+typeII <- getProbeInfo(mset, type = "II")[, c("Name","nCpG")]
+probeTypes <- rbind(typeI, typeII)
+probeTypes$Type <- rep(x = c("I", "II"), times = c(nrow(typeI), nrow(typeII)))
+# Now plot the distributions of the normalized data for sample 1
+plotBetasByType(dnorm[,1], probeTypes = probeTypes, main="Normalized",)
+dev.off()
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,2))
+# Plot distributions prior to normalization for sample 1
+plotBetasByType(mset[,1],main="Raw")
+typeI <- getProbeInfo(mset, type = "I")[, c("Name","nCpG")]
+typeII <- getProbeInfo(mset, type = "II")[, c("Name","nCpG")]
+probeTypes <- rbind(typeI, typeII)
+probeTypes$Type <- rep(x = c("I", "II"), times = c(nrow(typeI), nrow(typeII)))
+# Now plot the distributions of the normalized data for sample 1
+plotBetasByType(dnorm[,1], probeTypes = probeTypes, main="Normalized",)
+```
+**Distribution of the Probe Types before and after Dasen normalization**
+
+```{r, density_after_filter, include=FALSE}
+pdf(file = "norm_density_plot.pdf",
+    width = 12, 
+    height = 8)
+# visualise what the data looks like before and after normalisation
+par(mfrow=c(1,2))
+dens_raw <-densityPlot(rgset, sampGroups=targets$Sample_Group,main="Raw", legend=FALSE)
+legend("top", legend = levels(factor(targets$Sample_Group)),
+       text.col=brewer.pal(8,"Dark2"))
+dens_norm <- densityPlot(dnorm, sampGroups=targets$Sample_Group,
+            main="Normalized", legend=FALSE)
+legend("top", legend = levels(factor(targets$Sample_Group)),
+       text.col=brewer.pal(8,"Dark2"))
+dev.off()
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,2))
+dens_raw <-densityPlot(rgset, sampGroups=targets$Sample_Group,main="Raw", legend=FALSE)
+legend("top", legend = levels(factor(targets$Sample_Group)),
+       text.col=brewer.pal(8,"Dark2"))
+dens_norm <- densityPlot(dnorm, sampGroups=targets$Sample_Group,
+            main="Normalized", legend=FALSE)
+legend("top", legend = levels(factor(targets$Sample_Group)),
+       text.col=brewer.pal(8,"Dark2"))
+```
+**Comparison between the Sample densities before and after the normalization**
+
+```{r, mds_pdf, include=FALSE}
+pdf(file = "norm_mds_plot.pdf",
+    width = 12, 
+    height = 8)
+pal <- brewer.pal(8,"Dark2")
+plotMDS(dnorm_beta,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)])
+legend("top", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       bg="white", cex=0.7)
+dev.off()
+```
+
+```{r, mds_plot, echo=FALSE}
+plotMDS(dnorm_beta,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)])
+legend("top", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       bg="white", cex=0.7)
+```
+**MDS plot of the dasen normalized data**
+
+
+**Adjust data for PCs from control probes**
+
+Code provided by my supervisor.
+
+
+```{r, include=FALSE}
+#taking out from the phenotypes the confusing or possibly related types
+pd_filt <- pheno[, !(names(pheno) %in% c("AMP_Plate", "EstSex", "Fraction_Failed_Probes", "SexCheck"))]
+```
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+pcs5_svd_ <- champ.SVD(beta = as.data.frame(5ctrlpcs),
+              rgSet=nLoad$rgSet,
+              pd=pd_filt,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+```
+**Adjustment with 5 Ctrl PCs SVD Heatmap**
+```{r}
+pdf(file = "5prob_plot.pdf",
+    width = 12, 
+    height = 8)
+pal <- "#4169E1"
+par(mfrow=c(1,2))
+plotMDS(getBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(5ctrlpcs,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+dev.off()
+```
+```{r}
+plotMDS(getBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(5ctrlpcs,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+```
+**SVD before and after 5 Ctrl PCs adjustment**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+pcs7_svd_ <- champ.SVD(beta = as.data.frame(7ctrlpcs),
+              rgSet=nLoad$rgSet,
+              pd=pd_filt,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+```
+**Adjustment with 7 Ctrl PCs SVD Heatmap**
+
+```{r}
+pdf(file = "mds_bf_7prob_plot.pdf",
+    width = 12, 
+    height = 8)
+pal <- "gold"
+par(mfrow=c(1,2))
+plotMDS(getBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(7ctrlpcs,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+dev.off()
+```
+```{r}
+plotMDS(getBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(7ctrlpcs,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+```
+
+**SVD before and after 7 Ctrl PCs adjustment**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+pcs8_svd_ <- champ.SVD(beta = as.data.frame(8ctrlpcs),
+              rgSet=nLoad$rgSet,
+              pd=pd_filt,
+              RGEffect=TRUE,
+              PDFplot=TRUE,
+              Rplot=TRUE,
+              resultsDir="")
+```
+**Adjustment with 8 Ctrl PCs SVD Heatmap**
+```{r}
+pdf(file = "mds_bf_8prob_plot.pdf",
+    width = 12, 
+    height = 8)
+pal <- "red1"
+par(mfrow=c(1,2))
+plotMDS(getBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(8ctrlpcs,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+dev.off()
+```
+
+```{r}
+plotMDS(getBeta(rgset),pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+plotMDS(8ctrlpcs,pch = 19:19, top=1000, gene.selection="common", 
+        col=pal[factor(targets$Sample_Group)], dim=c(1,2))
+legend("topright", legend=levels(factor(targets$Sample_Group)), text.col=pal,
+       cex=0.7, bg="white")
+```
+**SVD before and after 8 Ctrl PCs adjustment**

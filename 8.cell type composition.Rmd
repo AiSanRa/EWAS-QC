@@ -1,0 +1,66 @@
+---
+title: "Cell type composition"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+##use epigen_cell_counts environment##
+```{r, packages, warning=FALSE, message=FALSE, echo=FALSE}
+library(tidyverse)
+library(ChAMP)
+library(sva)
+library(minfi)
+library(wateRmelon)
+library(data.table)
+library(knitr)
+library(RColorBrewer)
+library(plotly)
+library(FlowSorted.CordBlood.450k)
+```
+
+```{r, data preparation, include=FALSE}
+data(FlowSorted.CordBlood.450k)
+data(FlowSorted.CordBlood.450k.compTable)
+data(FlowSorted.CordBlood.450k.ModelPars)
+load("rgset.RData")
+```
+
+```{r, include=FALSE}
+#To fix the error that pops out with preprocessCore::normalize.quantiles
+#ERROR; return code from pthread_create() is 22
+#BiocManager::install("preprocessCore", configure.args="--disable-threading")
+#conda install openblas=0.3.3
+```
+
+```{r, echo=FALSE, message=FALSE}
+cellCounts <-estimateCellCounts(rgset, compositeCellType = "CordBlood",
+                   processMethod = "preprocessFunnorm", probeSelect = "auto",
+                   cellTypes = c('Bcell', 'CD4T', 'CD8T', 'Gran', 'Mono', 'NK' , 'nRBC'),
+                   referencePlatform = "IlluminaHumanMethylation450k",
+                   returnAll = TRUE, meanPlot = TRUE, verbose = FALSE)
+```
+
+```{r, include=FALSE}
+#save(cellCounts, file = "cell_counts.RData")
+```
+
+
+
+```{r, include=FALSE}
+pdf(file = "fun_norm_cell_counts.pdf",
+    width = 12, 
+    height = 8)
+estimateCellCounts(rgset, compositeCellType = "CordBlood",
+                   processMethod = "preprocessFunnorm", probeSelect = "auto",
+                   cellTypes = c('Bcell', 'CD4T', 'CD8T', 'Gran', 'Mono', 'NK', 'nRBC'),
+                   referencePlatform = "IlluminaHumanMethylation450k",
+                   returnAll = TRUE, meanPlot = TRUE, verbose = FALSE)
+dev.off()
+```
+
+

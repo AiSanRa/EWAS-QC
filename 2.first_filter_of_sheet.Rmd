@@ -1,0 +1,70 @@
+---
+title: "First filtering sheet"
+author: "Ainhoa Sanchez"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+sheet <- read.csv() #Current sheet to filter.
+```
+
+```{r}
+sheet_folder <- "" #Folder where the new sheet is gonna be.
+```
+
+
+```{r}
+
+# Find row indices where Sample_Name starts with "NegativCTRL" or "PositivCTRL"
+ctrl_indices <- grep("^NegativCTRL|^PositivCTRL", sheet$Sample_Name)
+# Extract the corresponding Sample_Names
+controls <- sheet$Sample_Name[ctrl_indices]
+
+whichBad_samplenames <- c()
+nearBad <- c()
+
+
+mismatched_sex <- c()
+
+rows_to_delete <- c(whichBad_samplenames, nearBad, mismatched_sex, controls)
+print(rows_to_delete) #To get sure that the rows that I want to delete are correct
+length(rows_to_delete)
+```
+
+```{r}
+# Find the row indices where the first column contains samples from rows_to_delete list
+rows_to_delete_indices <- which(sheet[,1] %in% rows_to_delete)
+
+# If there are rows to delete, remove them
+if(length(rows_to_delete_indices) > 0) {
+filtered_sheet <- sheet[-rows_to_delete_indices, ]}
+```
+
+```{r}
+# Verify deleted rows are not present in the new dataframe
+deleted_rows <- filtered_sheet[filtered_sheet$Sample_Name %in% rows_to_delete, ]
+if (nrow(deleted_rows) == 0) {
+  print("Deleted rows are not present in the new dataframe.")
+} else {
+  print("Some deleted rows are still present in the new dataframe.")
+  print(deleted_rows)
+}
+dim(filtered_sheet)
+```
+```{r}
+#change in the sheet collumns called Gender for Sex
+names(filtered_sheet)[names(filtered_sheet) == "Gender"] <- "Sex"
+names(filtered_sheet)[names(filtered_sheet) == "EstGender"] <- "EstSex"
+names(filtered_sheet)[names(filtered_sheet) == "GenderCheck"] <- "SexCheck"
+```
+
+```{r}
+#Filtered new Sheet
+write.csv(filtered_sheet, paste0(sheet_folder, "1.cutoff_sexpred_ctrl_filtered.csv"), row.names = FALSE)
+```
+
